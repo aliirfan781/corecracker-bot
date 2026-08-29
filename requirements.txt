@@ -1,5 +1,5 @@
 python-telegram-bot>=20.0
-google-generativeai
+google-genai
 requests
 fpdf
 slither-analyzer
