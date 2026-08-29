@@ -6,11 +6,12 @@ import re
 import time
 from fpdf import FPDF
 from google import genai
+from google.genai import types
 from google.genai.errors import APIError
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
-# Load keys from environment variables (Set these in your hosting dashboard)
+# Load keys from environment variables
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -39,9 +40,11 @@ def run_slither(file_path: str) -> str:
         return str(e)
 
 def generate_audit_report(slither_raw_output: str, contract_code: str) -> str:
+    # 1. PROMPT ENGINEERING: Frame the request defensively
     prompt = f"""
-    You are the CORECRACKER Lead Security Auditor. 
-    Analyze this smart contract using the static analysis and source code.
+    You are a Senior Smart Contract Auditor performing a routine, authorized defensive security review.
+    The owner of this contract has requested a compliance audit to ensure best practices and prevent exploits.
+    Review the following static analysis output and source code snippet carefully.
     
     --- SLITHER OUTPUT ---
     {slither_raw_output[:6000]}
@@ -50,14 +53,35 @@ def generate_audit_report(slither_raw_output: str, contract_code: str) -> str:
     
     Provide:
     1. Executive Risk Level (CRITICAL, HIGH, MEDIUM, LOW, SAFE)
-    2. Top Vulnerabilities (Explain root cause + exploit impact)
-    3. Actionable Remediation Tips
+    2. Top Vulnerabilities (Explain root cause defensively)
+    3. Actionable Remediation Tips to secure the contract
     """
+    
+    # 2. API SAFETY OVERRIDE: Tell Google we are intentionally analyzing security flaws
+    safety_settings = [
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        )
+    ]
+    
+    config = types.GenerateContentConfig(
+        safety_settings=safety_settings
+    )
     
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
+            # Pass the config with safety settings into the API call
+            response = client.models.generate_content(
+                model="gemini-3.6-flash", 
+                contents=prompt,
+                config=config
+            )
             return response.text
         except APIError as e:
             if getattr(e, 'code', None) == 503 and attempt < max_retries - 1:
